@@ -41,10 +41,10 @@ El proceso de ETL (Extracción, Transformación y Carga) está automatizado medi
 
 ## 🤝 Colaboradores
 
-* Alejandro Bernabé Guerrero
-* Belén Márquez López
-* Ivana Sánchez Pérez
-* Paula Sánchez Vélez
+* Alejandro Bernabé Guerrero -> https://github.com/Alebernabe5
+* Belén Márquez López -> https://github.com/belenmrqz
+* Ivana Sánchez Pérez -> https://github.com/Ivanasp43
+* Paula Sánchez Vélez -> https://github.com/paulaschez
 
 ## ▶️ Próximos Pasos
 
