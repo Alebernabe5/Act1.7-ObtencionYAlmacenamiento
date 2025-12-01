@@ -7,13 +7,64 @@ turquesa = '\033[38;5;44m'
 reset = '\033[0m'
 
 import sqlite3
+from contextlib import contextmanager
 
 DB_NAME = 'proyecto_datos.db'
 
-def crear_base_datos():
+class DatabaseConnection:
+    _instance = None
+    _connection = None
+
+    def __new__(cls):
+        """Implementa el patrón Singleton (asegura que solo se cree una instancia)"""
+        if cls._instance is None:
+            cls._instance = super(DatabaseConnection, cls).__new__(cls)
+            # Inicializar la conexion la primera vez que se llama a la instancia
+            cls._instance.connect()
+
+        return cls._instance
+    
+    def connect(self):
+        """Establece la conexion a la base de datos"""
+        if self._connection is None:
+            try:
+                self._connection = sqlite3.connect(DB_NAME)
+            except sqlite3.Error as e:
+                print(f"Error al conectar a la BD: {e}")
+                self._connection = None
+
+    def get_connection(self):
+        """Devuelve el objeto de conexion"""
+        if self._connection is None:
+            self.connect()
+        return self._connection
+    
+    def close(self):
+        """Cierra la conexion"""
+        if self._connection:
+            self._connection.close()
+            self._connection = None # Resetea oara permitir una nueva conexion si es necesario
+    
+
+@contextmanager
+def get_cursor():
+    """
+    Proporciona un cursor para realizar operaciones de BD, 
+    gestionando automáticamente el commit o rollback.
+    """
+    conn = DatabaseConnection().get_connection()
+    cursor = conn.cursor()
     try:
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
+        yield cursor
+        conn.commit()  # Si todo sale bien, guarda los cambios
+    except Exception as e:
+        conn.rollback() # Si hay un error, revierte
+        print(f"Operación de base de datos fallida: {e}")
+        raise
+    
+    
+def crear_base_datos():
+    with get_cursor() as cursor:
 
         # --------------------------------------------------------------
         # TABLAS DE DIMENSIONES (LOOKUPS)
@@ -31,7 +82,7 @@ def crear_base_datos():
             anio INTEGER NOT NULL,
             trimestre INTEGER, -- NULL si es mensual o anual
             mes INTEGER, -- NULL si es trimestral o anual
-            fecha_iso TEXT NOT NULL UNIQUE -- YYYY-MM-DD
+            fecha_iso TEXT NOT NULL UNIQUE -- YYYY-MM-DD 
         );
         """)
         print(f"\n{turquesa}Tabla{reset} {amarillo}'tbl_periodo'{reset}{turquesa} creada o ya existente.{reset}")
@@ -45,18 +96,17 @@ def crear_base_datos():
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS tbl_indicador (
             id_indicador INTEGER PRIMARY KEY,
-            nombre_corto TEXT NOT NULL UNIQUE, -- Ej: 'IPC_Gral', 'Paro_Juvenil', 'Salario_Mediana'
+            nombre TEXT NOT NULL UNIQUE, -- Ej: 'IPC_Gral', 'Paro_Juvenil', 'Salario_Mediana'
             unidad TEXT                        -- Ej: '%', 'Euros', 'Índice Base 100'
         );
         """)
         print(f"\n{turquesa}Tabla{reset} {amarillo}'tbl_indicador'{reset}{turquesa} creada o ya existente.{reset}")
         
-        # 3. Dimensión Geografía (Lookups)
+        # 3. Dimensión Geografía 
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS tbl_geografia (
             id_geografia INTEGER PRIMARY KEY,
-            codigo_ine TEXT NOT NULL UNIQUE,  -- Ej: 00 (Nacional), 01 (Andalucía)
-            nombre_ccaa TEXT NOT NULL
+            nombre TEXT NOT NULL UNIQUE
         );
         """)
         print(f"\n{turquesa}Tabla{reset} {amarillo}'tbl_geografia'{reset}{turquesa} creada o ya existente.{reset}")
@@ -80,15 +130,16 @@ def crear_base_datos():
         # la carga masiva; se usa texto libre.
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS T_precios (
-            id_hecho_precio INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_precio INTEGER PRIMARY KEY,
             id_periodo INTEGER NOT NULL,
             id_indicador INTEGER NOT NULL,
-            geografia TEXT NOT NULL, -- Nacional / CCAA
+            id_geografia INTEGER NOT NULL,
             categoria_gasto TEXT NOT NULL, -- IPC: alimentos, vivienda... IPV: nueva, usada...
             valor REAL NOT NULL,
 
             FOREIGN KEY (id_periodo) REFERENCES tbl_periodo(id_periodo),
             FOREIGN KEY (id_indicador) REFERENCES tbl_indicador(id_indicador)
+            FOREIGN KEY (id_geografia) REFERENCES tbl_geografia(id_geografia)
         );
         """)
         print(f"{turquesa}Tabla {reset}{amarillo}'T_precios'{reset}{turquesa} creada o ya existente.{reset}")
@@ -103,13 +154,12 @@ def crear_base_datos():
         # * EES (anual, con CNO11)
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS T_salarios (
-            id_hecho_salario INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_salario INTEGER PRIMARY KEY,
             id_periodo INTEGER NOT NULL,
             id_indicador INTEGER NOT NULL,      -- Coste salarial total, Mediana, P10, etc.
+            id_geografia INTEGER NOT NULL,
             
-            -- Dimensiones de contexto:
             sexo TEXT,                          -- Ambos, Hombres, Mujeres
-            geografia TEXT,
             sector_cnae TEXT,                   -- Sector de Actividad (solo en ETCL)
             ocupacion_cno11 TEXT,               -- Ocupación (solo en EES)
             
@@ -117,6 +167,7 @@ def crear_base_datos():
 
             FOREIGN KEY (id_periodo) REFERENCES tbl_periodo(id_periodo),
             FOREIGN KEY (id_indicador) REFERENCES tbl_indicador(id_indicador)
+            FOREIGN KEY (id_geografia) REFERENCES tbl_geografia(id_geografia)
         );
         """)
         print(f"{turquesa}Tabla{reset}{amarillo} 'T_salarios'{reset}{turquesa} creada o ya existente.{reset}")
@@ -131,20 +182,21 @@ def crear_base_datos():
 
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS T_empleo (
-            id_hecho_empleo INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_empleo INTEGER PRIMARY KEY,
             id_periodo INTEGER NOT NULL,
             id_indicador INTEGER NOT NULL, -- Tasa Paro, Total Asalariados, Temporalidad %
+            id_geografia INTEGER NOT NULL
 
-            -- Dimensiones de contexto:
             sexo TEXT NOT NULL,
             grupo_edad TEXT,                     -- 16-24, 25-54, etc.
             tipo_jornada TEXT,                   -- Completa, Parcial
             tipo_contrato TEXT,                  -- Indefinido, Temporal
-            
+                        
             valor REAL NOT NULL,                 -- El dato numérico (Tasa o Miles de Personas)
 
             FOREIGN KEY (id_periodo) REFERENCES tbl_periodo(id_periodo),
             FOREIGN KEY (id_indicador) REFERENCES tbl_indicador(id_indicador)
+            FOREIGN KEY (id_geografia) REFERENCES tbl_geografia(id_geografia)
         );
         """)
         print(f"{turquesa}Tabla{reset}{amarillo} 'T_empleo'{reset}{turquesa} creada o ya existente.{reset}")
@@ -161,16 +213,4 @@ def crear_base_datos():
         print(f"{turquesa}Tabla{reset}{amarillo}'tbl_pib'{reset}{turquesa} creada o ya existente.{reset}")
         print()
         """
-
-        # Confirmar los cambios
-        conn.commit()
-        print("Esquema de Base de Datos Dimensional creado exitosamente.")
-
-    except sqlite3.Error as e:
-        print(f"{rojo}Error al crear la base de datos {e}{reset}")
-    finally:
-        if conn:
-            conn.close()
-
-if __name__ == '__main__':
-    crear_base_datos()
+    print(f"\n{turquesa}Base de Datos lista. Faltan las funciones de precarga.{reset}")
