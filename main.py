@@ -1,3 +1,4 @@
+from almacenar import insertar_datos
 from config.constantes import (
     IPC,
     IPV,
@@ -10,7 +11,6 @@ from config.constantes import (
 from src.inedata import INEDataExtractor
 from src.procesar import procesar_datos
 
-# from src.almacenar import insertar_datos
 from src.db import DatabaseConnection, crear_base_datos
 
 
