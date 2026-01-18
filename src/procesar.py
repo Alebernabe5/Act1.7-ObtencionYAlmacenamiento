@@ -108,6 +108,7 @@ def _aplanar_nombre_serie(codigo, nombre_serie):
     elif codigo == EAES_OCUPACION:
         metadata["Sexo"] = partes[1]
         metadata["Ocupacion"] = partes[0]
+        metadata["Geografia"] = partes[3]
 
     return metadata
 
@@ -118,64 +119,72 @@ def _procesar_precios(codigo, data):
     for serie in data:
         nombre_serie = serie.get("Nombre", "")
         meta = _aplanar_nombre_serie(codigo, nombre_serie)
-
-        # Filtro Global: Guardamos los solo los  Indices (total) y la variacion anual
-        tipo_dato = meta.get("Tipo_Dato", "")
-
-        if "Índice" not in tipo_dato and "Variación anual" not in tipo_dato:
+        if not meta: 
             continue
 
-        # Filtrado y limpieza de categorías
+        # --- Filtro 1: TIPO DE DATO ---
+        tipo_dato = meta.get("Tipo_Dato", "")
+        es_indice = "Índice" in tipo_dato and "Variación" not in tipo_dato
+        es_var_anual = "Variación anual" in tipo_dato
 
+        if not (es_indice or es_var_anual):
+            continue
+
+        # --- Filtro 2: CATEGORÍA ---
+        cat = meta.get("Categoria", "").strip()
         categoria_limpia = ""
-        cat = meta.get("Categoria", "")
 
         if codigo == IPV:
-            # El INE devuelve: "Vivienda nueva", "Vivienda de segunda mano", "General"
-            # Solo nos quedamos con el general
-            if "General" not in cat:
+            # Solo aceptamos "General"
+            if cat != "General":
                 continue
-
             categoria_limpia = "Vivienda Total"
-
+        
         elif codigo == IPC:
-            if "Índice general" in cat:
+            # Si es el general, normalizamos el nombre
+            if "Índice general" == cat:
                 categoria_limpia = "IPC General"
-
             else:
-                categoria_limpia = cat[3:]  # Quitamos los numeros 01, 02...
+                # Si es una categoría específica (Alimentos, etc.), la dejamos tal cual
+                categoria_limpia = cat
 
-        # Obtener IDs de los FK (indicador y geografia)
-        id_geografia = _obtener_o_crear("geografia", "nombre", meta.get("Geografia"))
+        # --- DIMENSIONES ---
+        geo_nombre = meta.get("Geografia", "Total Nacional")
+        id_geografia = _obtener_o_crear("geografia", "nombre", geo_nombre)
 
         nombre_base = "IPC" if codigo == IPC else "IPV"
-
-        if "Variación" in tipo_dato:
-            nombre_indicador = f"{nombre_base}_Var_Anual"
+        
+        if es_var_anual:
+            nombre_indicador = f"{nombre_base}_Variacion_Anual_INE"
             unidad = "%"
         else:
-            nombre_indicador = f"{nombre_base}_Indice"
+            nombre_indicador = f"{nombre_base}_Indice_Base_2021_INE"
             unidad = "Base 2021=100"
 
-        id_indicador = _obtener_o_crear(
-            "indicador", "nombre", nombre_indicador, unidad=unidad
-        )
+        id_indicador = _obtener_o_crear("indicador", "nombre", nombre_indicador, unidad=unidad)
 
+        # --- DATOS TEMPORALES ---
         for dato in serie.get("Data", []):
-            # Lógica para extraer el periodo (Mes para IPC, Trimestre para IPV)
-            mes = dato.get("Fk_Periodo") if codigo == IPC else None
+            # Lectura segura del periodo (Mayúsculas/Minúsculas)
+            periodo_ine = dato.get("FK_Periodo") or dato.get("Fk_Periodo")
+
+            mes = periodo_ine if codigo == IPC else None
+            trimestre = periodo_ine if codigo == IPV else None
 
             id_periodo = _obtener_o_crear_periodo(
-                anio=dato.get("Anyo"), trimestre_fk=dato.get("Fk_Periodo"), mes=mes
+                anio=dato.get("Anyo"), 
+                trimestre_fk=trimestre, 
+                mes=mes
             )
-
+            
             valor = dato.get("Valor")
+            if valor is None: 
+                continue
 
-            # Estructura T_precios: id_periodo, id_indicador, id_geografia, categoria_gasto, valor
             filas_insertar.append(
                 (id_periodo, id_indicador, id_geografia, categoria_limpia, valor)
             )
-
+            
     return filas_insertar
 
 
@@ -228,7 +237,7 @@ def _procesar_empleo(codigo, data):
         for dato in serie.get("Data"):
             # Obtener ID del periodo
             id_periodo = _obtener_o_crear_periodo(
-                anio=dato.get("Anyo"), trimestre_fk=dato.get("Fk_Periodo")
+                anio=dato.get("Anyo"), trimestre_fk=dato.get("FK_Periodo")
             )
             sexo = metadata_dims.get("Sexo")
             grupo_edad = metadata_dims.get("Grupo_Edad", None)
@@ -304,7 +313,7 @@ def _procesar_salarios(codigo, data):
         # Iterar datos temporales
         for dato in serie.get("Data", []):
             id_periodo = _obtener_o_crear_periodo(
-                anio=dato.get("Anyo"), trimestre_fk=dato.get("Fk_Periodo")
+                anio=dato.get("Anyo"), trimestre_fk=dato.get("FK_Periodo")
             )
 
             valor = dato.get("Valor")
@@ -312,11 +321,11 @@ def _procesar_salarios(codigo, data):
             # Extraemos metadatos específicos de cada tabla para llenar las columnas de T_salarios
             sexo = meta.get("Sexo", "Total")
 
-            # Sector solo existe en ETCL, si no, es NULL (None)
-            sector = meta.get("Sector", None)
+            # Sector solo existe en ETCL, si no, es NULL (N/A)
+            sector = meta.get("Sector", "N/A")
 
-            # Ocupación solo existe en EAES_OCUPACION, si no, es NULL (None)
-            ocupacion = meta.get("Ocupacion", None)
+            # Ocupación solo existe en EAES_OCUPACION, si no, es NULL (N/A)
+            ocupacion = meta.get("Ocupacion", "N/A")
 
             # Estructura T_salarios:
             # id_periodo, id_indicador, id_geografia, sexo, sector_cnae, ocupacion_cno11, valor
@@ -328,103 +337,74 @@ def _procesar_salarios(codigo, data):
 
 
 def _obtener_o_crear_periodo(anio, mes=None, trimestre_fk=None):
-    """
-    Busca si un periodo existe. Si existe, devuelve su ID.
-    Si no existe, lo crea y devuelve el nuevo ID.
-
-    :param anio: Año (INTEGER).
-    :param mes: Mes (1-12) (INTEGER) [Para datos mensuales].
-    :param trimestre_fk: Código FK_Periodo del INE (19-22) [Para datos trimestrales].
-    """
-
-    # 1. Crear la clave única de búsqueda (ej: 2023-01-01)
     mes_calculado = mes
+    fecha_iso = ""
+
+    # 1. Caso Mensual (IPC)
     if mes is not None:
-        fecha_iso = f"{anio}-{str(mes).zfill(2)}-01"  # Mensual
-
+        fecha_iso = f"{anio}-{str(mes).zfill(2)}-01"
+    
+    # 2. Caso Trimestral o Anual
     elif trimestre_fk is not None:
-        if trimestre_fk == 19:
+        if trimestre_fk == 28: # ANUAL
+            mes_calculado = None 
+            fecha_iso = f"{anio}-01-01" # Forzamos Enero para el dato anual
+        
+        elif trimestre_fk == 19: # T1
             mes_calculado = 1
-        elif trimestre_fk == 20:
-            mes_calculado = 4  # Q2
-        elif trimestre_fk == 21:
-            mes_calculado = 7  # Q3
-        elif trimestre_fk == 22:
-            mes_calculado = 10  # Q4
-        else:
-            raise ValueError(f"Código de trimestre INE '{trimestre_fk}' no reconocido.")
+            fecha_iso = f"{anio}-01-01"
+        elif trimestre_fk == 20: # T2
+            mes_calculado = 4
+            fecha_iso = f"{anio}-04-01"
+        elif trimestre_fk == 21: # T3
+            mes_calculado = 7
+            fecha_iso = f"{anio}-07-01"
+        elif trimestre_fk == 22: # T4
+            mes_calculado = 10
+            fecha_iso = f"{anio}-10-01"
+        else: raise ValueError(f"Código trimestre {trimestre_fk} error")
 
-        fecha_iso = f"{anio}-{str(mes_calculado).zfill(2)}-01"  # Trimestral
+    # 3. Caso Defecto
     else:
-        fecha_iso = f"{anio}-01-01"  # Anual
+        fecha_iso = f"{anio}-01-01"
 
     return _obtener_o_crear(
         tabla="periodo",
         columna_busqueda="fecha_iso",
         valor_busqueda=fecha_iso,
         anio=anio,
-        trimestre=trimestre_fk,
+        trimestre=trimestre_fk if (trimestre_fk != 28) else None,
         mes=mes_calculado,
     )
 
 
 def _obtener_o_crear(tabla, columna_busqueda, valor_busqueda, **kwargs):
-    """
-    Función centralizada para buscar o crear una dimensión (Periodo, Geografía, Indicador).
-    """
     id_columna = f"id_{tabla}"
     tabla_nombre = f"tbl_{tabla}"
 
     with get_cursor() as cursor:
-
-        # 2. Intentar buscar el ID
-        sql_select = (
-            f"SELECT {id_columna} FROM {tabla_nombre} WHERE {columna_busqueda} = ?"
-        )
+        # 1. Intentar buscar el ID
+        sql_select = f"SELECT {id_columna} FROM {tabla_nombre} WHERE {columna_busqueda} = ?"
         cursor.execute(sql_select, (valor_busqueda,))
-        resultado = cursor.fetchone()
 
-        if resultado:
-            # El periodo ya existe. Devolvemos su ID.
-            return resultado[0]
+        # 2. El registro no existe. Lo insertamos.
 
-        # 3. El periodo no existe. Lo insertamos.
         sql_insert = ""
+        parametros = ()
+
         if tabla == "periodo":
-            sql_insert = """
-            INSERT INTO tbl_periodo (anio, mes, trimestre, fecha_iso) 
-            VALUES (?, ?, ?, ?)
-            """
-            parametros = (
-                kwargs.get("anio"),
-                kwargs.get("mes"),
-                kwargs.get("trimestre"),
-                valor_busqueda,  # fecha_iso
-            )
+            sql_insert = "INSERT INTO tbl_periodo (anio, mes, trimestre, fecha_iso) VALUES (?, ?, ?, ?)"
+            parametros = (kwargs.get("anio"), kwargs.get("mes"), kwargs.get("trimestre"), valor_busqueda)
 
         elif tabla == "geografia":
-            sql_insert = """
-            INSERT INTO tbl_geografia (nombre)
-            VALUES (?)
-            """
+            sql_insert = "INSERT INTO tbl_geografia (nombre) VALUES (?)"
             parametros = (valor_busqueda,)
 
         elif tabla == "indicador":
-            sql_insert = """
-            INSERT INTO tbl_indicador (nombre, unidad)
-            VALUES (?, ?)
-            """
-            parametros = (
-                valor_busqueda,
-                kwargs.get("unidad"),
-            )
-
+            sql_insert = "INSERT INTO tbl_indicador (nombre, unidad) VALUES (?, ?)"
+            parametros = (valor_busqueda, kwargs.get("unidad"))
         else:
-            raise ValueError(
-                f"Tabla de dimensión '{tabla}' no soportada por _obtener_o_crear."
-            )
+            raise ValueError(f"Tabla '{tabla}' no soportada.")
 
         cursor.execute(sql_insert, parametros)
-
-        # 4. Devolvemos el ID de la nueva fila insertada
         return cursor.lastrowid
