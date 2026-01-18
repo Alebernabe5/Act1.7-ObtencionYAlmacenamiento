@@ -12,7 +12,7 @@ class INEDataExtractor:
     def obtener_datos(self):
         url = f"{INE_BASE_URL}{self.codigo_tabla}"
         try:
-            r = requests.get(url, timeout=20)
+            r = requests.get(url, timeout=30)
             r.raise_for_status()
             
             respuesta = r.json()

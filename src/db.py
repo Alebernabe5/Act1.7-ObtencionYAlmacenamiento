@@ -207,16 +207,4 @@ def crear_base_datos():
         """)
         print(f"{turquesa}Tabla{reset}{amarillo} 'T_empleo'{reset}{turquesa} creada o ya existente.{reset}")
         
-
-        """ # Crear tabla de PIB 
-        cursor.execute(\"""
-        CREATE TABLE IF NOT EXISTS tbl_pib (
-            id_periodo INTEGER PRIMARY KEY,
-            variacion_anual REAL,
-            FOREIGN KEY (id_periodo) REFERENCES tbl_periodo(id_periodo)
-        );
-        \""")
-        print(f"{turquesa}Tabla{reset}{amarillo}'tbl_pib'{reset}{turquesa} creada o ya existente.{reset}")
-        print()
-        """
     print(f"\n{turquesa}Base de Datos lista. Faltan las funciones de precarga.{reset}")

@@ -1,4 +1,3 @@
-from almacenar import insertar_datos
 from config.constantes import (
     IPC,
     IPV,
@@ -10,7 +9,7 @@ from config.constantes import (
 )
 from src.inedata import INEDataExtractor
 from src.procesar import procesar_datos
-
+from src.almacenar import insertar_datos
 from src.db import DatabaseConnection, crear_base_datos
 
 
@@ -24,8 +23,11 @@ def main():
         extractor = INEDataExtractor(codigo)
         if extractor.obtener_datos():
             datos_procesados = procesar_datos(codigo, extractor.raw_data)
-            print("Procesando datos de tabla ", codigo)
-            print(datos_procesados)
+            
+            print("Procesando datos de tabla (Mostrando la primera fila)", codigo)
+            print(datos_procesados[0])
+
+            print("Número de filas a insertar", len(datos_procesados))
 
             tabla_destino = ""
 
@@ -39,6 +41,7 @@ def main():
             # Llamamos a almacenar pasándole el nombre
             if tabla_destino and datos_procesados:
                 insertar_datos(tabla_destino, datos_procesados)
+                pass
             # ---------------------------------------------------------
         else:
             print(f"No se pudieron obtener los datos de la tabla {codigo}")
