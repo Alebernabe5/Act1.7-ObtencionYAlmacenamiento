@@ -138,8 +138,10 @@ def crear_base_datos():
             valor REAL NOT NULL,
 
             FOREIGN KEY (id_periodo) REFERENCES tbl_periodo(id_periodo),
-            FOREIGN KEY (id_indicador) REFERENCES tbl_indicador(id_indicador)
-            FOREIGN KEY (id_geografia) REFERENCES tbl_geografia(id_geografia)
+            FOREIGN KEY (id_indicador) REFERENCES tbl_indicador(id_indicador),
+            FOREIGN KEY (id_geografia) REFERENCES tbl_geografia(id_geografia),
+                       
+            UNIQUE(id_periodo, id_indicador, id_geografia, categoria_gasto)
         );
         """)
         print(f"{turquesa}Tabla {reset}{amarillo}'T_precios'{reset}{turquesa} creada o ya existente.{reset}")
@@ -166,8 +168,10 @@ def crear_base_datos():
             valor REAL NOT NULL,               -- Salario en euros
 
             FOREIGN KEY (id_periodo) REFERENCES tbl_periodo(id_periodo),
-            FOREIGN KEY (id_indicador) REFERENCES tbl_indicador(id_indicador)
-            FOREIGN KEY (id_geografia) REFERENCES tbl_geografia(id_geografia)
+            FOREIGN KEY (id_indicador) REFERENCES tbl_indicador(id_indicador),
+            FOREIGN KEY (id_geografia) REFERENCES tbl_geografia(id_geografia),
+            
+            UNIQUE(id_periodo, id_indicador, id_geografia, sexo, sector_cnae, ocupacion_cno11)        
         );
         """)
         print(f"{turquesa}Tabla{reset}{amarillo} 'T_salarios'{reset}{turquesa} creada o ya existente.{reset}")
@@ -185,7 +189,7 @@ def crear_base_datos():
             id_empleo INTEGER PRIMARY KEY,
             id_periodo INTEGER NOT NULL,
             id_indicador INTEGER NOT NULL, -- Tasa Paro, Total Asalariados, Temporalidad %
-            id_geografia INTEGER NOT NULL
+            id_geografia INTEGER NOT NULL,
 
             sexo TEXT NOT NULL,
             grupo_edad TEXT,                     -- 16-24, 25-54, etc.
@@ -195,8 +199,10 @@ def crear_base_datos():
             valor REAL NOT NULL,                 -- El dato numérico (Tasa o Miles de Personas)
 
             FOREIGN KEY (id_periodo) REFERENCES tbl_periodo(id_periodo),
-            FOREIGN KEY (id_indicador) REFERENCES tbl_indicador(id_indicador)
-            FOREIGN KEY (id_geografia) REFERENCES tbl_geografia(id_geografia)
+            FOREIGN KEY (id_indicador) REFERENCES tbl_indicador(id_indicador),
+            FOREIGN KEY (id_geografia) REFERENCES tbl_geografia(id_geografia), 
+            
+            UNIQUE(id_periodo, id_indicador, id_geografia, sexo, grupo_edad, tipo_jornada, tipo_contrato)
         );
         """)
         print(f"{turquesa}Tabla{reset}{amarillo} 'T_empleo'{reset}{turquesa} creada o ya existente.{reset}")
